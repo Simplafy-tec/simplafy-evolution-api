@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { resolveMetaContactIdentity } from '../src/api/integrations/channel/meta/whatsapp.business.contact';
+import {
+  resolveMetaContactIdentity,
+  resolveMetaRemoteId,
+} from '../src/api/integrations/channel/meta/whatsapp.business.contact';
 
 describe('resolveMetaContactIdentity', () => {
   it('accepts the new Meta payload without profile', () => {
@@ -35,5 +38,23 @@ describe('resolveMetaContactIdentity', () => {
       pushName: undefined,
       contactPhone: '556188888888',
     });
+  });
+
+  it('ignores blank legacy fields and keeps the valid wa_id', () => {
+    const identity = resolveMetaContactIdentity(
+      { contacts: [{ wa_id: '556177777777', profile: { name: ' ', phone: '' } }] },
+      { from: '556166666666' },
+    );
+
+    assert.deepEqual(identity, {
+      pushName: '556177777777',
+      contactPhone: '556177777777',
+    });
+  });
+
+  it('resolves each message independently and rejects missing counterparts', () => {
+    assert.equal(resolveMetaRemoteId({ from: '556155555555' }), '556155555555');
+    assert.equal(resolveMetaRemoteId({ to: '556144444444' }), '556144444444');
+    assert.equal(resolveMetaRemoteId({}), undefined);
   });
 });

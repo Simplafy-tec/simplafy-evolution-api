@@ -32,7 +32,7 @@ import FormData from 'form-data';
 import mimeTypes from 'mime-types';
 import { join } from 'path';
 
-import { resolveMetaContactIdentity } from './whatsapp.business.contact';
+import { resolveMetaContactIdentity, resolveMetaRemoteId } from './whatsapp.business.contact';
 
 export class BusinessStartupService extends ChannelStartupService {
   constructor(
@@ -133,10 +133,10 @@ export class BusinessStartupService extends ChannelStartupService {
     try {
       this.loadChatwoot();
 
-      const remoteId = content.messages?.[0]?.from ?? content.statuses?.[0]?.recipient_id;
-      if (remoteId) this.phoneNumber = createJid(remoteId);
-
       await this.eventHandler(content);
+
+      const remoteId = resolveMetaRemoteId(content.messages?.[0]) ?? content.statuses?.[0]?.recipient_id;
+      if (remoteId) this.phoneNumber = createJid(remoteId);
     } catch (error) {
       this.logger.error(error);
       throw new InternalServerErrorException(error?.toString());
@@ -393,10 +393,12 @@ export class BusinessStartupService extends ChannelStartupService {
 
       if (received.messages) {
         const message = received.messages[0]; // Añadir esta línea para definir message
+        const remoteId = resolveMetaRemoteId(message);
+        if (!remoteId) return;
 
         const key = {
           id: message.id,
-          remoteJid: this.phoneNumber,
+          remoteJid: createJid(remoteId),
           fromMe: message.from === received.metadata.phone_number_id,
         };
 
@@ -735,7 +737,7 @@ export class BusinessStartupService extends ChannelStartupService {
           }
 
           await this.prismaRepository.contact.updateMany({
-            where: { remoteJid: contact.remoteJid },
+            where: { instanceId: this.instanceId, remoteJid: contact.remoteJid },
             data: contactRaw,
           });
           return;
@@ -749,13 +751,16 @@ export class BusinessStartupService extends ChannelStartupService {
       }
       if (received.statuses) {
         for await (const item of received.statuses) {
-          const key = {
+          const remoteId = item?.recipient_id;
+          if (!remoteId) continue;
+
+          const key: any = {
             id: item.id,
-            remoteJid: this.phoneNumber,
-            fromMe: this.phoneNumber === received.metadata.phone_number_id,
+            remoteJid: createJid(remoteId),
+            fromMe: true,
           };
           if (settings?.groups_ignore && key.remoteJid.includes('@g.us')) {
-            return;
+            continue;
           }
           if (key.remoteJid !== 'status@broadcast' && !key?.remoteJid?.match(/(:\d+)/)) {
             const findMessage = await this.prismaRepository.message.findFirst({
@@ -769,8 +774,12 @@ export class BusinessStartupService extends ChannelStartupService {
             });
 
             if (!findMessage) {
-              return;
+              continue;
             }
+
+            const storedKey: any = findMessage.key ?? {};
+            if (storedKey.remoteJid) key.remoteJid = storedKey.remoteJid;
+            if (typeof storedKey.fromMe === 'boolean') key.fromMe = storedKey.fromMe;
 
             if (item.message === null && item.status === undefined) {
               this.sendDataWebhook(Events.MESSAGES_DELETE, key);
@@ -797,7 +806,7 @@ export class BusinessStartupService extends ChannelStartupService {
                 );
               }
 
-              return;
+              continue;
             }
 
             const message: any = {
@@ -926,13 +935,13 @@ export class BusinessStartupService extends ChannelStartupService {
           message.type === 'reaction'
         ) {
           // Procesar el mensaje normalmente
-          this.messageHandle(content, database, settings);
+          await this.messageHandle(content, database, settings);
         } else {
           this.logger.warn(`Tipo de mensaje no reconocido: ${message.type}`);
         }
       } else if (content.statuses) {
         // Procesar actualizaciones de estado
-        this.messageHandle(content, database, settings);
+        await this.messageHandle(content, database, settings);
       } else {
         this.logger.warn('No se encontraron mensajes ni estados en el contenido recibido');
       }

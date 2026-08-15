@@ -98,7 +98,6 @@ jobs:
 
       - name: Load Distribution credentials from Infisical
         id: infisical
-        continue-on-error: true
         uses: Infisical/secrets-action@v1.0.15
         with:
           method: oidc
@@ -109,7 +108,7 @@ jobs:
           secret-path: /cicd
 
       - name: Mirror immutable tag to Distribution
-        if: steps.infisical.outcome == 'success'
+        timeout-minutes: 10
         env:
           TAG: ${{ steps.meta.outputs.tag }}
         run: |
