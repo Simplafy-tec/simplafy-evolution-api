@@ -400,9 +400,16 @@ export class BusinessStartupService extends ChannelStartupService {
           fromMe: message.from === received.metadata.phone_number_id,
         };
 
-        const contact = await this.prismaRepository.contact.findFirst({
-          where: { instanceId: this.instanceId, remoteJid: key.remoteJid },
-        });
+        let contact: any;
+        let contactLookupFailed = false;
+        try {
+          contact = await this.prismaRepository.contact.findFirst({
+            where: { instanceId: this.instanceId, remoteJid: key.remoteJid },
+          });
+        } catch (error) {
+          contactLookupFailed = true;
+          this.logger.error(error);
+        }
         const contactIdentity = resolveMetaContactIdentity(received, message, contact?.pushName);
         const pushName = contactIdentity.pushName;
 
@@ -705,7 +712,7 @@ export class BusinessStartupService extends ChannelStartupService {
           });
         }
 
-        if (!contactIdentity.contactPhone) return;
+        if (contactLookupFailed || !contactIdentity.contactPhone) return;
 
         const contactRaw: any = {
           remoteJid: createJid(contactIdentity.contactPhone),
