@@ -388,10 +388,8 @@ export class BusinessStartupService extends ChannelStartupService {
   protected async messageHandle(received: any, database: Database, settings: any) {
     try {
       let messageRaw: any;
-      let pushName: any;
-
       const contactIdentity = resolveMetaContactIdentity(received, received?.messages?.[0]);
-      pushName = contactIdentity.pushName;
+      const pushName = contactIdentity.pushName;
 
       if (received.messages) {
         const message = received.messages[0]; // Añadir esta línea para definir message
