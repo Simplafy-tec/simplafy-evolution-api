@@ -32,6 +32,8 @@ import FormData from 'form-data';
 import mimeTypes from 'mime-types';
 import { join } from 'path';
 
+import { resolveMetaContactIdentity } from './whatsapp.business.contact';
+
 export class BusinessStartupService extends ChannelStartupService {
   constructor(
     public readonly configService: ConfigService,
@@ -131,9 +133,10 @@ export class BusinessStartupService extends ChannelStartupService {
     try {
       this.loadChatwoot();
 
-      this.eventHandler(content);
+      const remoteId = content.messages?.[0]?.from ?? content.statuses?.[0]?.recipient_id;
+      if (remoteId) this.phoneNumber = createJid(remoteId);
 
-      this.phoneNumber = createJid(content.messages ? content.messages[0].from : content.statuses[0]?.recipient_id);
+      await this.eventHandler(content);
     } catch (error) {
       this.logger.error(error);
       throw new InternalServerErrorException(error?.toString());
@@ -387,7 +390,8 @@ export class BusinessStartupService extends ChannelStartupService {
       let messageRaw: any;
       let pushName: any;
 
-      if (received.contacts) pushName = received.contacts[0].profile.name;
+      const contactIdentity = resolveMetaContactIdentity(received, received?.messages?.[0]);
+      pushName = contactIdentity.pushName;
 
       if (received.messages) {
         const message = received.messages[0]; // Añadir esta línea para definir message
@@ -701,8 +705,10 @@ export class BusinessStartupService extends ChannelStartupService {
           where: { instanceId: this.instanceId, remoteJid: key.remoteJid },
         });
 
+        if (!contactIdentity.contactPhone) return;
+
         const contactRaw: any = {
-          remoteJid: received.contacts[0].profile.phone,
+          remoteJid: createJid(contactIdentity.contactPhone),
           pushName,
           // profilePicUrl: '',
           instanceId: this.instanceId,
@@ -714,7 +720,7 @@ export class BusinessStartupService extends ChannelStartupService {
 
         if (contact) {
           const contactRaw: any = {
-            remoteJid: received.contacts[0].profile.phone,
+            remoteJid: createJid(contactIdentity.contactPhone),
             pushName,
             // profilePicUrl: '',
             instanceId: this.instanceId,
