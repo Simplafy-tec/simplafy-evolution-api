@@ -388,8 +388,6 @@ export class BusinessStartupService extends ChannelStartupService {
   protected async messageHandle(received: any, database: Database, settings: any) {
     try {
       let messageRaw: any;
-      const contactIdentity = resolveMetaContactIdentity(received, received?.messages?.[0]);
-      const pushName = contactIdentity.pushName;
 
       if (received.messages) {
         const message = received.messages[0]; // Añadir esta línea para definir message
@@ -401,6 +399,12 @@ export class BusinessStartupService extends ChannelStartupService {
           remoteJid: createJid(remoteId),
           fromMe: message.from === received.metadata.phone_number_id,
         };
+
+        const contact = await this.prismaRepository.contact.findFirst({
+          where: { instanceId: this.instanceId, remoteJid: key.remoteJid },
+        });
+        const contactIdentity = resolveMetaContactIdentity(received, message, contact?.pushName);
+        const pushName = contactIdentity.pushName;
 
         if (message.type === 'sticker') {
           this.logger.log('Procesando mensaje de tipo sticker');
@@ -700,10 +704,6 @@ export class BusinessStartupService extends ChannelStartupService {
             data: messageRaw,
           });
         }
-
-        const contact = await this.prismaRepository.contact.findFirst({
-          where: { instanceId: this.instanceId, remoteJid: key.remoteJid },
-        });
 
         if (!contactIdentity.contactPhone) return;
 

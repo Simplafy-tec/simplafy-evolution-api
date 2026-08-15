@@ -52,6 +52,19 @@ describe('resolveMetaContactIdentity', () => {
     });
   });
 
+  it('preserves the persisted human name when Meta omits profile', () => {
+    const identity = resolveMetaContactIdentity(
+      { contacts: [{ wa_id: '556177777777', user_id: 'BR.123' }] },
+      { from: '556177777777' },
+      'Cliente Brasal',
+    );
+
+    assert.deepEqual(identity, {
+      pushName: 'Cliente Brasal',
+      contactPhone: '556177777777',
+    });
+  });
+
   it('resolves each message independently and rejects missing counterparts', () => {
     assert.equal(resolveMetaRemoteId({ from: '556155555555' }), '556155555555');
     assert.equal(resolveMetaRemoteId({ to: '556144444444' }), '556144444444');

@@ -8,8 +8,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
-  packages: write
 
 concurrency:
   group: evolution-hotfix-${{ github.ref }}
@@ -18,9 +16,6 @@ concurrency:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   IMAGE: ghcr.io/simplafy-tec/evolution-api
-  DISTRIBUTION_IMAGE: registry.simplafy.com.br/simplafy-tec/evolution-api
-  INFISICAL_DOMAIN: https://secrets.simplafy.com.br
-  INFISICAL_IDENTITY_ID: e2e68b3f-fa45-4476-8775-a1b3a57e111c
 
 jobs:
   validate:
@@ -61,6 +56,9 @@ jobs:
     needs: validate
     runs-on: ${{ vars.CI_RUNNER }}
     timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: write
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
       digest: ${{ steps.build.outputs.digest }}
@@ -95,28 +93,6 @@ jobs:
           tags: ${{ env.IMAGE }}:${{ steps.meta.outputs.tag }}
           cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-v237
           cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-v237,mode=max
-
-      - name: Load Distribution credentials from Infisical
-        id: infisical
-        uses: Infisical/secrets-action@v1.0.15
-        with:
-          method: oidc
-          identity-id: ${{ env.INFISICAL_IDENTITY_ID }}
-          domain: ${{ env.INFISICAL_DOMAIN }}
-          project-slug: simplafy-infra-opzw
-          env-slug: prod
-          secret-path: /cicd
-
-      - name: Mirror immutable tag to Distribution
-        timeout-minutes: 10
-        env:
-          TAG: ${{ steps.meta.outputs.tag }}
-        run: |
-          echo "${REGISTRY_CI_PASSWORD}" | docker login registry.simplafy.com.br -u ci-push --password-stdin
-          docker buildx imagetools create \
-            --tag "${DISTRIBUTION_IMAGE}:${TAG}" \
-            "${IMAGE}:${TAG}"
-          docker logout registry.simplafy.com.br || true
 
       - name: Publish image proof
         env:
