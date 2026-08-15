@@ -19,13 +19,7 @@ export function resolveMetaContactIdentity(
   const contact = received?.contacts?.[0];
 
   return {
-    pushName: firstNonBlank(
-      contact?.profile?.name,
-      contact?.name,
-      persistedPushName,
-      contact?.wa_id,
-      contact?.user_id,
-    ),
+    pushName: firstNonBlank(contact?.profile?.name, contact?.name, persistedPushName, contact?.wa_id, contact?.user_id),
     contactPhone: firstNonBlank(contact?.profile?.phone, contact?.wa_id, resolveMetaRemoteId(message)),
   };
 }
