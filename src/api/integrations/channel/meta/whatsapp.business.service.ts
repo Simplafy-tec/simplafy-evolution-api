@@ -32,6 +32,8 @@ import FormData from 'form-data';
 import mimeTypes from 'mime-types';
 import { join } from 'path';
 
+import { resolveMetaContactIdentity, resolveMetaRemoteId } from './whatsapp.business.contact';
+
 export class BusinessStartupService extends ChannelStartupService {
   constructor(
     public readonly configService: ConfigService,
@@ -131,9 +133,10 @@ export class BusinessStartupService extends ChannelStartupService {
     try {
       this.loadChatwoot();
 
-      this.eventHandler(content);
+      await this.eventHandler(content);
 
-      this.phoneNumber = createJid(content.messages ? content.messages[0].from : content.statuses[0]?.recipient_id);
+      const remoteId = resolveMetaRemoteId(content.messages?.[0]) ?? content.statuses?.[0]?.recipient_id;
+      if (remoteId) this.phoneNumber = createJid(remoteId);
     } catch (error) {
       this.logger.error(error);
       throw new InternalServerErrorException(error?.toString());
@@ -385,18 +388,30 @@ export class BusinessStartupService extends ChannelStartupService {
   protected async messageHandle(received: any, database: Database, settings: any) {
     try {
       let messageRaw: any;
-      let pushName: any;
-
-      if (received.contacts) pushName = received.contacts[0].profile.name;
 
       if (received.messages) {
         const message = received.messages[0]; // Añadir esta línea para definir message
+        const remoteId = resolveMetaRemoteId(message);
+        if (!remoteId) return;
 
         const key = {
           id: message.id,
-          remoteJid: this.phoneNumber,
+          remoteJid: createJid(remoteId),
           fromMe: message.from === received.metadata.phone_number_id,
         };
+
+        let contact: any;
+        let contactLookupFailed = false;
+        try {
+          contact = await this.prismaRepository.contact.findFirst({
+            where: { instanceId: this.instanceId, remoteJid: key.remoteJid },
+          });
+        } catch (error) {
+          contactLookupFailed = true;
+          this.logger.error(error);
+        }
+        const contactIdentity = resolveMetaContactIdentity(received, message, contact?.pushName);
+        const pushName = contactIdentity.pushName;
 
         if (message.type === 'sticker') {
           this.logger.log('Procesando mensaje de tipo sticker');
@@ -697,12 +712,10 @@ export class BusinessStartupService extends ChannelStartupService {
           });
         }
 
-        const contact = await this.prismaRepository.contact.findFirst({
-          where: { instanceId: this.instanceId, remoteJid: key.remoteJid },
-        });
+        if (contactLookupFailed || !contactIdentity.contactPhone) return;
 
         const contactRaw: any = {
-          remoteJid: received.contacts[0].profile.phone,
+          remoteJid: createJid(contactIdentity.contactPhone),
           pushName,
           // profilePicUrl: '',
           instanceId: this.instanceId,
@@ -714,7 +727,7 @@ export class BusinessStartupService extends ChannelStartupService {
 
         if (contact) {
           const contactRaw: any = {
-            remoteJid: received.contacts[0].profile.phone,
+            remoteJid: createJid(contactIdentity.contactPhone),
             pushName,
             // profilePicUrl: '',
             instanceId: this.instanceId,
@@ -731,7 +744,7 @@ export class BusinessStartupService extends ChannelStartupService {
           }
 
           await this.prismaRepository.contact.updateMany({
-            where: { remoteJid: contact.remoteJid },
+            where: { instanceId: this.instanceId, remoteJid: contact.remoteJid },
             data: contactRaw,
           });
           return;
@@ -745,31 +758,67 @@ export class BusinessStartupService extends ChannelStartupService {
       }
       if (received.statuses) {
         for await (const item of received.statuses) {
-          const key = {
-            id: item.id,
-            remoteJid: this.phoneNumber,
-            fromMe: this.phoneNumber === received.metadata.phone_number_id,
-          };
-          if (settings?.groups_ignore && key.remoteJid.includes('@g.us')) {
-            return;
-          }
-          if (key.remoteJid !== 'status@broadcast' && !key?.remoteJid?.match(/(:\d+)/)) {
-            const findMessage = await this.prismaRepository.message.findFirst({
-              where: {
-                instanceId: this.instanceId,
-                key: {
-                  path: ['id'],
-                  equals: key.id,
-                },
-              },
-            });
+          try {
+            const remoteId = item?.recipient_id;
+            if (!remoteId) continue;
 
-            if (!findMessage) {
-              return;
+            const key: any = {
+              id: item.id,
+              remoteJid: createJid(remoteId),
+              fromMe: true,
+            };
+            if (settings?.groups_ignore && key.remoteJid.includes('@g.us')) {
+              continue;
             }
+            if (key.remoteJid !== 'status@broadcast' && !key?.remoteJid?.match(/(:\d+)/)) {
+              const findMessage = await this.prismaRepository.message.findFirst({
+                where: {
+                  instanceId: this.instanceId,
+                  key: {
+                    path: ['id'],
+                    equals: key.id,
+                  },
+                },
+              });
 
-            if (item.message === null && item.status === undefined) {
-              this.sendDataWebhook(Events.MESSAGES_DELETE, key);
+              if (!findMessage) {
+                continue;
+              }
+
+              const storedKey: any = findMessage.key ?? {};
+              if (storedKey.remoteJid) key.remoteJid = storedKey.remoteJid;
+              if (typeof storedKey.fromMe === 'boolean') key.fromMe = storedKey.fromMe;
+
+              if (item.message === null && item.status === undefined) {
+                this.sendDataWebhook(Events.MESSAGES_DELETE, key);
+
+                const message: any = {
+                  messageId: findMessage.id,
+                  keyId: key.id,
+                  remoteJid: key.remoteJid,
+                  fromMe: key.fromMe,
+                  participant: key?.remoteJid,
+                  status: 'DELETED',
+                  instanceId: this.instanceId,
+                };
+
+                await this.prismaRepository.messageUpdate.create({
+                  data: message,
+                });
+
+                if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled) {
+                  this.chatwootService.eventWhatsapp(
+                    Events.MESSAGES_DELETE,
+                    { instanceName: this.instance.name, instanceId: this.instanceId },
+                    { key: key },
+                  );
+                }
+
+                continue;
+              }
+
+              const normalizedStatus = typeof item.status === 'string' ? item.status.toUpperCase() : undefined;
+              if (!normalizedStatus) continue;
 
               const message: any = {
                 messageId: findMessage.id,
@@ -777,44 +826,22 @@ export class BusinessStartupService extends ChannelStartupService {
                 remoteJid: key.remoteJid,
                 fromMe: key.fromMe,
                 participant: key?.remoteJid,
-                status: 'DELETED',
+                status: normalizedStatus,
                 instanceId: this.instanceId,
               };
+
+              this.sendDataWebhook(Events.MESSAGES_UPDATE, message);
 
               await this.prismaRepository.messageUpdate.create({
                 data: message,
               });
 
-              if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled) {
-                this.chatwootService.eventWhatsapp(
-                  Events.MESSAGES_DELETE,
-                  { instanceName: this.instance.name, instanceId: this.instanceId },
-                  { key: key },
-                );
+              if (findMessage.webhookUrl) {
+                await axios.post(findMessage.webhookUrl, message);
               }
-
-              return;
             }
-
-            const message: any = {
-              messageId: findMessage.id,
-              keyId: key.id,
-              remoteJid: key.remoteJid,
-              fromMe: key.fromMe,
-              participant: key?.remoteJid,
-              status: item.status.toUpperCase(),
-              instanceId: this.instanceId,
-            };
-
-            this.sendDataWebhook(Events.MESSAGES_UPDATE, message);
-
-            await this.prismaRepository.messageUpdate.create({
-              data: message,
-            });
-
-            if (findMessage.webhookUrl) {
-              await axios.post(findMessage.webhookUrl, message);
-            }
+          } catch (error) {
+            this.logger.error(error);
           }
         }
       }
@@ -922,13 +949,13 @@ export class BusinessStartupService extends ChannelStartupService {
           message.type === 'reaction'
         ) {
           // Procesar el mensaje normalmente
-          this.messageHandle(content, database, settings);
+          await this.messageHandle(content, database, settings);
         } else {
           this.logger.warn(`Tipo de mensaje no reconocido: ${message.type}`);
         }
       } else if (content.statuses) {
         // Procesar actualizaciones de estado
-        this.messageHandle(content, database, settings);
+        await this.messageHandle(content, database, settings);
       } else {
         this.logger.warn('No se encontraron mensajes ni estados en el contenido recibido');
       }
