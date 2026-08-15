@@ -20,6 +20,6 @@ export function resolveMetaContactIdentity(
 
   return {
     pushName: firstNonBlank(contact?.profile?.name, contact?.name, persistedPushName, contact?.wa_id, contact?.user_id),
-    contactPhone: firstNonBlank(contact?.profile?.phone, contact?.wa_id, resolveMetaRemoteId(message)),
+    contactPhone: firstNonBlank(contact?.wa_id, resolveMetaRemoteId(message), contact?.profile?.phone),
   };
 }

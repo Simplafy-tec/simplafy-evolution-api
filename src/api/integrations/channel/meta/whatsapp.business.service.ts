@@ -751,38 +751,67 @@ export class BusinessStartupService extends ChannelStartupService {
       }
       if (received.statuses) {
         for await (const item of received.statuses) {
-          const remoteId = item?.recipient_id;
-          if (!remoteId) continue;
+          try {
+            const remoteId = item?.recipient_id;
+            if (!remoteId) continue;
 
-          const key: any = {
-            id: item.id,
-            remoteJid: createJid(remoteId),
-            fromMe: true,
-          };
-          if (settings?.groups_ignore && key.remoteJid.includes('@g.us')) {
-            continue;
-          }
-          if (key.remoteJid !== 'status@broadcast' && !key?.remoteJid?.match(/(:\d+)/)) {
-            const findMessage = await this.prismaRepository.message.findFirst({
-              where: {
-                instanceId: this.instanceId,
-                key: {
-                  path: ['id'],
-                  equals: key.id,
-                },
-              },
-            });
-
-            if (!findMessage) {
+            const key: any = {
+              id: item.id,
+              remoteJid: createJid(remoteId),
+              fromMe: true,
+            };
+            if (settings?.groups_ignore && key.remoteJid.includes('@g.us')) {
               continue;
             }
+            if (key.remoteJid !== 'status@broadcast' && !key?.remoteJid?.match(/(:\d+)/)) {
+              const findMessage = await this.prismaRepository.message.findFirst({
+                where: {
+                  instanceId: this.instanceId,
+                  key: {
+                    path: ['id'],
+                    equals: key.id,
+                  },
+                },
+              });
 
-            const storedKey: any = findMessage.key ?? {};
-            if (storedKey.remoteJid) key.remoteJid = storedKey.remoteJid;
-            if (typeof storedKey.fromMe === 'boolean') key.fromMe = storedKey.fromMe;
+              if (!findMessage) {
+                continue;
+              }
 
-            if (item.message === null && item.status === undefined) {
-              this.sendDataWebhook(Events.MESSAGES_DELETE, key);
+              const storedKey: any = findMessage.key ?? {};
+              if (storedKey.remoteJid) key.remoteJid = storedKey.remoteJid;
+              if (typeof storedKey.fromMe === 'boolean') key.fromMe = storedKey.fromMe;
+
+              if (item.message === null && item.status === undefined) {
+                this.sendDataWebhook(Events.MESSAGES_DELETE, key);
+
+                const message: any = {
+                  messageId: findMessage.id,
+                  keyId: key.id,
+                  remoteJid: key.remoteJid,
+                  fromMe: key.fromMe,
+                  participant: key?.remoteJid,
+                  status: 'DELETED',
+                  instanceId: this.instanceId,
+                };
+
+                await this.prismaRepository.messageUpdate.create({
+                  data: message,
+                });
+
+                if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled) {
+                  this.chatwootService.eventWhatsapp(
+                    Events.MESSAGES_DELETE,
+                    { instanceName: this.instance.name, instanceId: this.instanceId },
+                    { key: key },
+                  );
+                }
+
+                continue;
+              }
+
+              const normalizedStatus = typeof item.status === 'string' ? item.status.toUpperCase() : undefined;
+              if (!normalizedStatus) continue;
 
               const message: any = {
                 messageId: findMessage.id,
@@ -790,44 +819,22 @@ export class BusinessStartupService extends ChannelStartupService {
                 remoteJid: key.remoteJid,
                 fromMe: key.fromMe,
                 participant: key?.remoteJid,
-                status: 'DELETED',
+                status: normalizedStatus,
                 instanceId: this.instanceId,
               };
+
+              this.sendDataWebhook(Events.MESSAGES_UPDATE, message);
 
               await this.prismaRepository.messageUpdate.create({
                 data: message,
               });
 
-              if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled) {
-                this.chatwootService.eventWhatsapp(
-                  Events.MESSAGES_DELETE,
-                  { instanceName: this.instance.name, instanceId: this.instanceId },
-                  { key: key },
-                );
+              if (findMessage.webhookUrl) {
+                await axios.post(findMessage.webhookUrl, message);
               }
-
-              continue;
             }
-
-            const message: any = {
-              messageId: findMessage.id,
-              keyId: key.id,
-              remoteJid: key.remoteJid,
-              fromMe: key.fromMe,
-              participant: key?.remoteJid,
-              status: item.status.toUpperCase(),
-              instanceId: this.instanceId,
-            };
-
-            this.sendDataWebhook(Events.MESSAGES_UPDATE, message);
-
-            await this.prismaRepository.messageUpdate.create({
-              data: message,
-            });
-
-            if (findMessage.webhookUrl) {
-              await axios.post(findMessage.webhookUrl, message);
-            }
+          } catch (error) {
+            this.logger.error(error);
           }
         }
       }

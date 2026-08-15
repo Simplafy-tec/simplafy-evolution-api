@@ -19,7 +19,7 @@ describe('resolveMetaContactIdentity', () => {
     });
   });
 
-  it('keeps the legacy profile fields when present', () => {
+  it('keeps the legacy profile name but prefers the authoritative wa_id', () => {
     const identity = resolveMetaContactIdentity(
       { contacts: [{ wa_id: '556100000000', profile: { name: 'Fabiano', phone: '556199999999' } }] },
       { from: '556100000000' },
@@ -27,7 +27,7 @@ describe('resolveMetaContactIdentity', () => {
 
     assert.deepEqual(identity, {
       pushName: 'Fabiano',
-      contactPhone: '556199999999',
+      contactPhone: '556100000000',
     });
   });
 
