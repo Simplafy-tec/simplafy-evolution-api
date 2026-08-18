@@ -5,9 +5,12 @@ import { ChannelRouter } from '@api/integrations/channel/channel.router';
 import { ChatbotRouter } from '@api/integrations/chatbot/chatbot.router';
 import { EventRouter } from '@api/integrations/event/event.router';
 import { StorageRouter } from '@api/integrations/storage/storage.router';
-import { waMonitor } from '@api/server.module';
+import { cache, waMonitor } from '@api/server.module';
 import { configService, Database, Facebook } from '@config/env.config';
-import { fetchLatestWaWebVersion } from '@utils/fetchLatestWaWebVersion';
+import {
+  getStaticWaWebVersion,
+  getWhatsAppWebVersionForRoot,
+} from '@utils/fetchLatestWaWebVersion';
 import { NextFunction, Request, Response, Router } from 'express';
 import fs from 'fs';
 import mimeTypes from 'mime-types';
@@ -194,15 +197,31 @@ router
   .use((req, res, next) => telemetry.collectTelemetry(req, res, next))
 
   .get('/', async (req, res) => {
-    res.status(HttpStatus.OK).json({
-      status: HttpStatus.OK,
-      message: 'Welcome to the Evolution API, it is working!',
-      version: packageJson.version,
-      clientName: databaseConfig.CONNECTION.CLIENT_NAME,
-      manager: !serverConfig.DISABLE_MANAGER ? `${req.protocol}://${req.get('host')}/manager` : undefined,
-      documentation: `https://doc.evolution-api.com`,
-      whatsappWebVersion: (await fetchLatestWaWebVersion({})).version.join('.'),
-    });
+    try {
+      const { versionString, externalCheckFailed } = await getWhatsAppWebVersionForRoot(cache);
+
+      return res.status(HttpStatus.OK).json({
+        status: HttpStatus.OK,
+        message: 'Welcome to the Evolution API, it is working!',
+        version: packageJson.version,
+        clientName: databaseConfig.CONNECTION.CLIENT_NAME,
+        manager: !serverConfig.DISABLE_MANAGER ? `${req.protocol}://${req.get('host')}/manager` : undefined,
+        documentation: `https://doc.evolution-api.com`,
+        whatsappWebVersion: versionString,
+        ...(externalCheckFailed ? { whatsappWebVersionCheckFailed: true } : {}),
+      });
+    } catch {
+      return res.status(HttpStatus.OK).json({
+        status: HttpStatus.OK,
+        message: 'Welcome to the Evolution API, it is working!',
+        version: packageJson.version,
+        clientName: databaseConfig.CONNECTION.CLIENT_NAME,
+        manager: !serverConfig.DISABLE_MANAGER ? `${req.protocol}://${req.get('host')}/manager` : undefined,
+        documentation: `https://doc.evolution-api.com`,
+        whatsappWebVersion: getStaticWaWebVersion().join('.'),
+        whatsappWebVersionCheckFailed: true,
+      });
+    }
   })
   .post('/verify-creds', authGuard['apikey'], async (req, res) => {
     const facebookConfig = configService.get<Facebook>('FACEBOOK');
