@@ -7,6 +7,8 @@ import * as amqp from 'amqplib/callback_api';
 import { EmitData, EventController, EventControllerInterface } from '../event.controller';
 import { scrubRabbitmqError, scrubRabbitmqPublishLog } from './rabbitmq-log-scrubber';
 
+type RabbitmqClient = Pick<typeof amqp, 'connect'>;
+
 export class RabbitmqController extends EventController implements EventControllerInterface {
   public amqpChannel: amqp.Channel | null = null;
   private amqpConnection: amqp.Connection | null = null;
@@ -16,7 +18,11 @@ export class RabbitmqController extends EventController implements EventControll
   private reconnectDelay = 5000; // 5 seconds
   private isReconnecting = false;
 
-  constructor(prismaRepository: PrismaRepository, waMonitor: WAMonitoringService) {
+  constructor(
+    prismaRepository: PrismaRepository,
+    waMonitor: WAMonitoringService,
+    private readonly amqpClient: RabbitmqClient = amqp,
+  ) {
     super(prismaRepository, waMonitor, configService.get<Rabbitmq>('RABBITMQ')?.ENABLED, 'rabbitmq');
   }
 
@@ -46,7 +52,7 @@ export class RabbitmqController extends EventController implements EventControll
         heartbeat: 30, // Add heartbeat of 30 seconds
       };
 
-      amqp.connect(connectionOptions, (error: Error, connection: amqp.Connection) => {
+      this.amqpClient.connect(connectionOptions, (error: Error, connection: amqp.Connection) => {
         if (error) {
           this.logger.error({
             local: 'RabbitmqController.connect',
