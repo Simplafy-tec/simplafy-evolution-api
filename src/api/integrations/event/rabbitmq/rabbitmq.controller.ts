@@ -121,7 +121,7 @@ export class RabbitmqController extends EventController implements EventControll
           this.initGlobalQueues();
         }
       })
-      .catch(() => {
+      .catch((error) => {
         this.logger.error({
           local: 'RabbitmqController.init',
           message: 'Failed to initialize AMQP',
