@@ -5,6 +5,7 @@ import { Logger } from '@config/logger.config';
 import * as amqp from 'amqplib/callback_api';
 
 import { EmitData, EventController, EventControllerInterface } from '../event.controller';
+import { scrubRabbitmqError, scrubRabbitmqPublishLog } from './rabbitmq-log-scrubber';
 
 export class RabbitmqController extends EventController implements EventControllerInterface {
   public amqpChannel: amqp.Channel | null = null;
@@ -50,7 +51,7 @@ export class RabbitmqController extends EventController implements EventControll
           this.logger.error({
             local: 'RabbitmqController.connect',
             message: 'Failed to connect to RabbitMQ',
-            error: error.message || error,
+            error: scrubRabbitmqError(),
           });
           reject(error);
           return;
@@ -61,7 +62,7 @@ export class RabbitmqController extends EventController implements EventControll
           this.logger.error({
             local: 'RabbitmqController.connectionError',
             message: 'RabbitMQ connection error',
-            error: err.message || err,
+            error: scrubRabbitmqError(),
           });
           this.handleConnectionLoss();
         });
@@ -76,7 +77,7 @@ export class RabbitmqController extends EventController implements EventControll
             this.logger.error({
               local: 'RabbitmqController.createChannel',
               message: 'Failed to create RabbitMQ channel',
-              error: channelError.message || channelError,
+              error: scrubRabbitmqError(),
             });
             reject(channelError);
             return;
@@ -87,7 +88,7 @@ export class RabbitmqController extends EventController implements EventControll
             this.logger.error({
               local: 'RabbitmqController.channelError',
               message: 'RabbitMQ channel error',
-              error: err.message || err,
+              error: scrubRabbitmqError(),
             });
             this.handleConnectionLoss();
           });
@@ -124,7 +125,7 @@ export class RabbitmqController extends EventController implements EventControll
         this.logger.error({
           local: 'RabbitmqController.init',
           message: 'Failed to initialize AMQP',
-          error: error.message || error,
+          error: scrubRabbitmqError(),
         });
         this.scheduleReconnect();
         throw error;
@@ -172,7 +173,7 @@ export class RabbitmqController extends EventController implements EventControll
         this.logger.error({
           local: 'RabbitmqController.scheduleReconnect',
           message: `Reconnection attempt ${this.reconnectAttempts} failed`,
-          error: error.message || error,
+          error: scrubRabbitmqError(),
         });
         this.isReconnecting = false;
         this.scheduleReconnect();
@@ -201,7 +202,6 @@ export class RabbitmqController extends EventController implements EventControll
 
   public async emit({
     instanceName,
-    origin,
     event,
     data,
     serverUrl,
@@ -274,12 +274,7 @@ export class RabbitmqController extends EventController implements EventControll
             await this.amqpChannel.publish(exchangeName, event, Buffer.from(JSON.stringify(message)));
 
             if (logEnabled) {
-              const logData = {
-                local: `${origin}.sendData-RabbitMQ`,
-                ...message,
-              };
-
-              this.logger.log(logData);
+              this.logger.log(scrubRabbitmqPublishLog('local'));
             }
 
             break;
@@ -287,7 +282,7 @@ export class RabbitmqController extends EventController implements EventControll
             this.logger.error({
               local: 'RabbitmqController.emit',
               message: `Error publishing local RabbitMQ message (attempt ${retry + 1}/3)`,
-              error: error.message || error,
+              error: scrubRabbitmqError(),
             });
             retry++;
             if (retry >= 3) {
@@ -327,12 +322,7 @@ export class RabbitmqController extends EventController implements EventControll
           await this.amqpChannel.publish(exchangeName, event, Buffer.from(JSON.stringify(message)));
 
           if (logEnabled) {
-            const logData = {
-              local: `${origin}.sendData-RabbitMQ-Global`,
-              ...message,
-            };
-
-            this.logger.log(logData);
+            this.logger.log(scrubRabbitmqPublishLog('global'));
           }
 
           break;
@@ -340,7 +330,7 @@ export class RabbitmqController extends EventController implements EventControll
           this.logger.error({
             local: 'RabbitmqController.emit',
             message: `Error publishing global RabbitMQ message (attempt ${retry + 1}/3)`,
-            error: error.message || error,
+            error: scrubRabbitmqError(),
           });
           retry++;
           if (retry >= 3) {
@@ -400,7 +390,7 @@ export class RabbitmqController extends EventController implements EventControll
         this.logger.error({
           local: 'RabbitmqController.initGlobalQueues',
           message: `Failed to initialize global queue for event ${event}`,
-          error: error.message || error,
+          error: scrubRabbitmqError(),
         });
         this.handleConnectionLoss();
         break;
@@ -422,7 +412,7 @@ export class RabbitmqController extends EventController implements EventControll
       this.logger.warn({
         local: 'RabbitmqController.cleanup',
         message: 'Error during cleanup',
-        error: error.message || error,
+        error: scrubRabbitmqError(),
       });
       this.amqpChannel = null;
       this.amqpConnection = null;
