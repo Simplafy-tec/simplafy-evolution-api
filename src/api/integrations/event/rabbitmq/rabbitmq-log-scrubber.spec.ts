@@ -32,7 +32,7 @@ const expectedLog = (scope: 'local' | 'global') => ({
 function rabbitmqConfig(globalEnabled: boolean): Rabbitmq {
   return {
     ENABLED: true,
-    URI: '',
+    URI: 'amqp://localhost:5672/',
     FRAME_MAX: 8192,
     EXCHANGE_NAME: 'events',
     GLOBAL_ENABLED: globalEnabled,
