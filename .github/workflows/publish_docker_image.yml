@@ -25,6 +25,9 @@ jobs:
           images: evoapicloud/evolution-api
           tags: type=semver,pattern=v{{version}}
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -38,10 +41,7 @@ jobs:
         id: docker_build
         uses: docker/build-push-action@v6
         with:
-          # Só amd64 (emenda ADR-015 2026-09-23): o runner self-hosted usa docker
-          # rootless e não registra binfmt/qemu (medido na ci-2: só python3.12 em
-          # /proc/sys/fs/binfmt_misc). Nossos clusters são todos amd64 (medido).
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
