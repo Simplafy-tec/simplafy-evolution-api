@@ -21,14 +21,9 @@ jobs:
       with:
         node-version: 20.x
 
-    - name: Cache node modules
-      uses: actions/cache@v4
-      with:
-        path: ~/.npm
-        key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-node-
-
+    # Cache do GitHub removido (emenda ADR-015 2026-09-23). Repo publico roda em
+    # runner do GitHub (vars.CI_RUNNER=ubuntu-latest): o grupo self-hosted da org
+    # nao aceita repo publico, por seguranca. Sem cache, o npm baixa do zero.
     - name: Install packages
       run: npm ci
     

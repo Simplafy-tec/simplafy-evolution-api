@@ -11,7 +11,7 @@ on:
 jobs:
   codeql:
     name: CodeQL Analysis
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER }}
     timeout-minutes: 15
     permissions:
       actions: read
@@ -44,7 +44,7 @@ jobs:
 
   dependency-review:
     name: Dependency Review
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER }}
     if: github.event_name == 'pull_request'
     steps:
       - name: Checkout Repository
